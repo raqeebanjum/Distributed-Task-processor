@@ -57,3 +57,4 @@ docker-compose.override.yml
 Thumbs.db
 
 .opencode/
+*.md
