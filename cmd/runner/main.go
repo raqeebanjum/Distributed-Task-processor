@@ -3,32 +3,39 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
-	"time"
 
-	"taskscheduler/internal/job"
+	"taskscheduler/internal/task"
+	"taskscheduler/internal/worker"
 )
 
-const timeout = 30 * time.Second
-
 func main() {
-	name := flag.String("job", "count", "job to run")
-	payload := flag.String("payload", "{}", "job payload as JSON")
+	size := flag.Int("pool", 3, "number of workers")
 	flag.Parse()
 
-	if err := run(*name, []byte(*payload)); err != nil {
-		slog.Error("job failed", "job", *name, "err", err)
-		os.Exit(1)
-	}
-}
+	store := task.NewMemory()
+	pool := worker.New(store, *size)
+	pool.Start(context.Background())
 
-func run(name string, payload []byte) error {
-	j, err := job.Get(name)
-	if err != nil {
-		return err
+	for i := 0; i < 5; i++ {
+		_, err := pool.Submit(task.Task{
+			Type:    "count",
+			Payload: []byte(`{"max": 3}`),
+		})
+		if err != nil {
+			slog.Error("submit failed", "err", err)
+			os.Exit(1)
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return j.Run(ctx, payload)
+
+	pool.Wait()
+	pool.Stop()
+
+	fmt.Printf("%-7s %-6s %-7s %-13s %-13s %s\n", "id", "type", "status", "started", "finished", "error")
+	for _, t := range store.List() {
+		fmt.Printf("%-7s %-6s %-7s %-13s %-13s %s\n", t.ID, t.Type, t.Status,
+			t.StartedAt.Format("15:04:05.000"), t.FinishedAt.Format("15:04:05.000"), t.Error)
+	}
 }
